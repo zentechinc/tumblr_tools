@@ -1,7 +1,6 @@
-import ast
-import csv
 import hashlib
 import html
+import json
 import os
 import time
 from datetime import datetime
@@ -54,8 +53,10 @@ def focus_list(object_list, focus_criteria='follows'):
 
     if focus_criteria == 'follows':
         list_to_include = ['follow']
-    else:
+    elif focus_criteria == 'likes':
         list_to_include = ['like']
+    else:
+        list_to_include = ['post']
 
     for object_in_list in object_list:
         for search_term in list_to_include:
@@ -65,26 +66,12 @@ def focus_list(object_list, focus_criteria='follows'):
     return new_list
 
 
-def reduce_blog_url(blog_name):
-    reduced = blog_name
-    reduced = reduced.replace('http://', '')
-    reduced = reduced.replace('https://', '')
-    if reduced[-1:]:
-        reduced = reduced[:-1]
-
-    return reduced
-
-
-def reduce_url_file_name(url):
-    return url[str.rfind(url, '/') + 1:]
-
-
 def get_file_extension_from_name(file_name):
     return file_name[-4:]
 
 
-def get_complete_dir_listing(dir_to_list):
-    return os.listdir(dir_to_list)
+def get_dir_list_less_dirs(dir_to_list):
+    return remove_dirs_from_dir_listing(os.listdir(dir_to_list))
 
 
 def focus_photos_on_original(list_of_photos_from_like):
@@ -153,27 +140,19 @@ def get_like_type(like):
         return 'video_flickr'
 
     if like['type'] == 'video':
+        print('---------> Like Type: Generic Video')
+        print('----->:', )
         print(like)
         return 'video'
 
     return
 
 
-def reduce_like(like, path_to_captures):
-    like_type = get_like_type(like)
-    liked_url_hash = get_liked_url_hash(like)
-    reduced_like_body = {
-        'like_type': like_type,
-        'liked_url_hash': liked_url_hash,
-        'payload': get_capture_list_from_like(like, like_type),
-        'path_to_captures': path_to_captures
-    }
-    return reduced_like_body
-
-
 def smart_capture(reduced_like, known_files):
     # if reduced_like['like_type'] == 'video_vine':
     #     print('enter debug')
+
+    print('----->reduce_like[]:', reduced_like['like_type'])
 
     if reduced_like['like_type'] in ['audio', 'photo', 'text', 'video']:
         i = 1
@@ -207,53 +186,13 @@ def get_liked_url_hash(like):
     return hashlib.md5(like['post_url'].encode('utf-8')).hexdigest()
 
 
-def read_csv(csv_path, likes_follows_or_posts='likes'):
-    relike_array = []
-    known_likes = []
-    if likes_follows_or_posts in csv_path:
-        with open(csv_path, newline='\n', encoding='utf-8') as csv_infile:
-            csv_reader = csv.DictReader(csv_infile, delimiter=',', quotechar='"', escapechar='\\',
-                                        lineterminator='\r\n')
-            for record in csv_reader:
-                if record['id'] + record['reblog_key'] not in known_likes:
-                    known_likes.append(record['id'] + record['reblog_key'])
-                    relike_array.append({'id': record['id'], 'reblog_key': record['reblog_key']})
-
-    return relike_array
-
-
-def next_page_of_likes(tumblr_client, page_of_likes={'page_offset': 0}):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    page_of_likes['likes'] = tumblr_client.likes(limit=10, offset=page_of_likes['page_offset'])['liked_posts']
-    page_of_likes['page_offset'] = page_of_likes['page_offset'] + 10
-    return page_of_likes
-
-
-def next_page_of_follows(tumblr_client, page_of_blogs={'page_offset': 0}):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    page_of_blogs['blogs'] = tumblr_client.following(limit=10, offset=page_of_blogs['page_offset'])['blogs']
-    page_of_blogs['page_offset'] = page_of_blogs['page_offset'] + 10
-    return page_of_blogs
-
-
-def next_page_of_posts(tumblr_client, page_of_posts={'page_offset': 0}):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-
-    if 'reduced_blog_url' not in page_of_posts:
-        page_of_posts['reduced_blog_url'] = reduce_blog_url(tumblr_client.info()['user']['blogs'][0]['url'])
-
-    page_of_posts['posts'] = tumblr_client.posts(page_of_posts['reduced_blog_url'], limit=10,
-                                                 offset=page_of_posts['page_offset'])['posts']
-    page_of_posts['page_offset'] = page_of_posts['page_offset'] + 10
-    return page_of_posts
-
-
-def get_post_keys(likeable_post):
-    likeable_keys = {'id': likeable_post['id'], 'reblog_key': likeable_post['reblog_key']}
+def get_post_keys(post_to_focus):
+    likeable_keys = {'id': post_to_focus['id'], 'reblog_key': post_to_focus['reblog_key']}
     return likeable_keys
 
 
 def get_blog_keys(tumblr_blog):
+    # not currently used
     if type(tumblr_blog) is dict:
         if 'url' in tumblr_blog:
             return {'reduced_url': reduce_blog_url(tumblr_blog['url'])}
@@ -264,46 +203,17 @@ def get_blog_keys(tumblr_blog):
         exit()
 
 
-def tumblr_like(tumblr_client, post_to_like):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    post_keys = get_post_keys(post_to_like)
-    print('liking: {}, {}'.format(post_keys, post_to_like))
-    tumblr_client.like(post_keys['id'], post_keys['reblog_key'])
-
-
-def tumblr_unlike(tumblr_client, post_to_like):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    post_keys = get_post_keys(post_to_like)
-    print('unliking: {}, {}'.format(post_keys, post_to_like))
-    tumblr_client.unlike(post_keys['id'], post_keys['reblog_key'])
-
-
-def tumblr_unfollow(tumblr_client, blog_to_follow):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    blog_keys = get_blog_keys(blog_to_follow)
-    print('unfollowing: {}'.format(blog_keys['reduced_url']))
-    tumblr_client.unfollow(blog_keys['reduced_url'])
-
-
-def tumblr_follow(tumblr_client, blog_to_follow):
-    test_client_api_calls(config_dictionary['run_options']['continuous_run'])
-    blog_keys = get_blog_keys(blog_to_follow)
-    print('following: {}'.format(blog_keys['reduced_url']))
-    tumblr_client.follow(blog_keys['reduced_url'])
-
-
 def fetch_tumblr_client():
+    aws_secrets = json.loads(get_secret())
     return pytumblr.TumblrRestClient(
-        secrets['consumer_key'],
-        secrets['consumer_secret'],
-        secrets['oauth_token'],
-        secrets['oauth_secret'])
+        aws_secrets['consumer_key'],
+        aws_secrets['consumer_secret'],
+        aws_secrets['oauth_token'],
+        aws_secrets['oauth_secret'])
 
 
-def test_client_api_calls(continuous_run=False, escape_check=False):
-    tumblr_tester = fetch_tumblr_client()
-
-    tumblr_response = tumblr_tester.info()
+def test_client_api_calls(runtime_options, continuous_run=False, escape_check=False):
+    tumblr_response = runtime_options['tumblr_client'].info()
 
     if 'errors' in tumblr_response:
         if escape_check:
@@ -323,178 +233,307 @@ def test_client_api_calls(continuous_run=False, escape_check=False):
     return True
 
 
-def go_to_sleeeeeeep():
+def throttle_call(tumblr_response):
+    if 'response' in tumblr_response:
+        go_to_sleeeeeeep(10)
+        return True
+
+    return False
+
+
+def go_to_sleeeeeeep(wait=60):
     escape_sleep = False
 
     while not escape_sleep:
-        print('sleeping 1 minute at {}...'.format(datetime.now().strftime('%Y-%m-%d %I:%M:%S')))
-        time.sleep(60)
+        print('sleeping for {} seconds at {}...'.format(wait, datetime.now().strftime('%Y-%m-%d %I:%M:%S')))
+        time.sleep(wait)
 
-        escape_sleep = test_client_api_calls(config_dictionary['run_options']['continuous_run'], True)
+        escape_sleep = test_client_api_calls(
+            {'tumblr_client': fetch_tumblr_client()},
+             config_dictionary['run_options']['continuous_run'], True
+        )
 
     return
 
 
-def main():
-    tumblr_client = fetch_tumblr_client()
+def do_tumblr_like(runtime_options, post_to_like):
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    post_keys = get_post_keys(post_to_like)
+    print('liking: {}, {}'.format(post_keys, post_to_like))
+    runtime_options['tumblr_client'].like(post_keys['id'], post_keys['reblog_key'])
 
-    date_started_formatted = datetime.now().strftime('%y%m%d_%H%M%S')
 
-    path_to_archives = '../resources/archives/'
-    path_to_captures = '../resources/captures/'
-    csv_path_followes = '{}follows_{}.csv'.format(path_to_archives, date_started_formatted)
-    csv_path_likes = '{}likes_{}.csv'.format(path_to_archives, date_started_formatted)
+def do_tumblr_unlike(runtime_options, post_to_like):
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    post_keys = get_post_keys(post_to_like)
+    print('unliking: {}, {}'.format(post_keys, post_to_like))
+    runtime_options['tumblr_client'].unlike(post_keys['id'], post_keys['reblog_key'])
 
-    if config_dictionary['follows']['archive']:
-        page_of_follows = next_page_of_follows(tumblr_client)
 
-        with open(csv_path_followes, 'x', newline='\n', encoding='utf-8') as csv_file:
-            csv_fieldnames = ['name', 'title', 'url', 'uuid', 'updated', 'description']
-            csv_writer = csv.DictWriter(csv_file,
-                                        csv_fieldnames,
-                                        delimiter=',',
-                                        quotechar='"',
-                                        quoting=csv.QUOTE_ALL,
-                                        escapechar='\\',
-                                        lineterminator='\r\n')
-            csv_writer.writeheader()
+def do_tumblr_follow(runtime_options, blog_to_follow):
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    reduced_blog_url = reduce_blog_url(blog_to_follow['url'])
+    print('following: {}'.format(reduced_blog_url))
+    runtime_options['tumblr_client'].follow(blog_to_follow['url'])
 
-            while len(page_of_follows['blogs']) > 0:
-                for blog in page_of_follows['blogs']:
-                    blog['description'] = cleanse_newlines(blog['description'])
-                    csv_writer.writerow(blog)
 
-                page_of_follows = next_page_of_follows(tumblr_client, page_of_follows)
+def do_tumblr_unfollow(runtime_options, blog_to_unfollow):
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    reduced_blog_url = reduce_blog_url(blog_to_unfollow['url'])
+    print('unfollowing: {}'.format(reduced_blog_url))
+    runtime_options['tumblr_client'].unfollow(reduced_blog_url)
 
-    if config_dictionary['follows']['unfollow']:
-        page_of_follows = next_page_of_follows(tumblr_client)
 
-        while len(page_of_follows['blogs']) > 0:
-            for blog in page_of_follows['blogs']:
-                tumblr_unfollow(tumblr_client, blog)
+def next_page_of_follows(runtime_options, working_page={'page_offset': 0}):
+    # keep
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    response_contains_errors = True
+    tumblr_response = {}
+    while response_contains_errors == True:
+        tumblr_response = runtime_options['tumblr_client'].following()
+        response_contains_errors = throttle_call(tumblr_response)
 
-            page_of_follows = next_page_of_follows(tumblr_client, {'page_offset': 0})
+    working_page['blogs'] = tumblr_response['blogs']
+    working_page['page_offset'] = working_page['page_offset'] + len(working_page['blogs'])
+    return working_page
 
-    if config_dictionary['follows']['refollow']:
-        directory_list = get_complete_dir_listing(path_to_archives)
+
+def next_page_of_likes(runtime_options, working_page={'page_offset': 0}):
+    # keep
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    response_contains_errors = True
+    tumblr_response = {}
+    while response_contains_errors == True:
+        tumblr_response = runtime_options['tumblr_client'].likes(
+            offset=working_page['page_offset']
+        )
+
+        response_contains_errors = throttle_call(tumblr_response)
+
+    working_page['likes'] = tumblr_response['liked_posts']
+    working_page['page_offset'] = working_page['page_offset'] + len(working_page['likes'])
+    return working_page
+
+
+def next_page_of_posts(runtime_options, working_page={'page_offset': 0}):
+    # keep
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+    response_contains_errors = True
+    tumblr_response = {}
+    while response_contains_errors == True:
+        tumblr_response = runtime_options['tumblr_client'].posts(
+            runtime_options['user_params']['blog_name'],
+            limit=10, offset=working_page['page_offset']
+        )
+        response_contains_errors = throttle_call(tumblr_response)
+
+    working_page['posts'] = tumblr_response['posts']
+    working_page['page_offset'] = working_page['page_offset'] + len(working_page['posts'])
+    return working_page
+
+
+def reduce_blog_url(blog_name):
+    reduced = blog_name
+    reduced = reduced.replace('http://', '')
+    reduced = reduced.replace('https://', '')
+    if reduced[-1:] == '/':
+        reduced = reduced[:-1]
+
+    return reduced
+
+
+def reduce_like(like, path_to_captures):
+    like_type = get_like_type(like)
+    liked_url_hash = get_liked_url_hash(like)
+    reduced_like_body = {
+        'like_type': like_type,
+        'liked_url_hash': liked_url_hash,
+        'payload': get_capture_list_from_like(like, like_type),
+        'path_to_captures': path_to_captures
+    }
+    return reduced_like_body
+
+
+def reduce_url_file_name(url):
+    return url[str.rfind(url, '/') + 1:]
+
+
+def should_run_follows(config_dictionary):
+    if any([config_dictionary['follows']['archive'],
+            config_dictionary['follows']['unfollow'],
+            config_dictionary['follows']['refollow']
+            ]):
+        return True
+
+    return False
+
+def should_run_likes(config_dictionary):
+    if any([config_dictionary['likes']['archive'],
+            config_dictionary['likes']['capture'],
+            config_dictionary['likes']['unlike'],
+            config_dictionary['likes']['relike']
+            ]):
+        return True
+
+    return False
+
+def should_run_posts(config_dictionary):
+    if any([config_dictionary['posts']['archive'],
+            config_dictionary['posts']['delete']
+            ]):
+        return True
+
+    return False
+
+def run_follow_pages(runtime_options, config_dictionary):
+    # keep
+    page_of_follows = next_page_of_follows(runtime_options)
+
+    if (config_dictionary['follows']['archive']):
+        file_full_of_json = open(runtime_options['follows_archive_path'], 'x', newline='\n', encoding='utf-8')
+
+    while len(page_of_follows['blogs']) > 0:
+        for blog in page_of_follows['blogs']:
+
+            if (config_dictionary['follows']['archive']):
+                # blog['description'] = cleanse_newlines(blog['description'])
+                file_full_of_json.write(json.dumps(blog) + '\n')
+
+            if (config_dictionary['follows']['unfollow']):
+                do_tumblr_unfollow(runtime_options, blog)
+
+        page_of_follows = next_page_of_follows(runtime_options, page_of_follows)
+
+    if (config_dictionary['follows']['archive']):
+        file_full_of_json.close()
+
+
+def run_like_pages(runtime_options, config_dictionary):
+    # keep
+    page_of_likes = next_page_of_likes(runtime_options)
+
+    if (config_dictionary['likes']['archive']):
+        file_full_of_json = open(runtime_options['likes_archive_path'], 'x', newline='\n', encoding='utf-8')
+
+    if (config_dictionary['likes']['capture']):
+        directory_list = get_dir_list_less_dirs(runtime_options['path_to_captures'])
         directory_list = remove_dirs_from_dir_listing(directory_list)
-        directory_list = focus_list(directory_list, 'follows')
 
-        for directory_item in directory_list:
-            path_to_directory_item = os.path.join(path_to_archives, directory_item)
-            if directory_item[-4:] == '.csv':
-                refollow_array = read_csv(os.path.join(path_to_archives, directory_item))
-            else:
-                refollow_array = list()
-                with open(path_to_directory_item) as file_in:
-                    for file_line in file_in:
-                        record = ast.literal_eval(file_line)
-                        refollow_array.append(record)
+    while len(page_of_likes['likes']) > 0:
+        for like in page_of_likes['likes']:
 
-            for refollow in refollow_array:
-                tumblr_follow(tumblr_client, refollow)
+            if (config_dictionary['likes']['archive']):
+                # blog['description'] = cleanse_newlines(blog['description'])
+                file_full_of_json.write(json.dumps(like) + '\n')
 
-    if config_dictionary['likes']['archive']:
-        page_of_likes = next_page_of_likes(tumblr_client)
-
-        with open(csv_path_likes, 'x', newline='\n', encoding='utf-8') as csv_file:
-            csv_fieldnames = ['title', 'type', 'blog_name', 'blog', 'id', 'post_url', 'slug', 'date', 'timestamp',
-                              'state', 'format', 'reblog_key', 'tags', 'short_url', 'should_open_in_legacy',
-                              'recommended_source', 'recommended_color', 'followed', 'liked', 'note_count',
-                              'video_url', 'html5_capable', 'thumbnail_url', 'thumbnail_width',
-                              'thumbnail_height', 'duration', 'player', 'video_type', 'liked_timestamp', 'can_like',
-                              'can_reblog', 'can_send_in_message', 'can_reply', 'display_avatar', 'image_permalink',
-                              'link_url', 'source_url', 'source_title', 'photos', 'body', 'photoset_layout',
-                              'post_author', 'permalink_url', 'post_author_is_adult', 'is_submission', 'plays', 'embed',
-                              'audio_type', 'audio_url', 'audio_source_url', 'asking_name', 'asking_url', 'question',
-                              'answer', 'bookmarklet']
-            csv_writer = csv.DictWriter(csv_file,
-                                        csv_fieldnames,
-                                        delimiter=',',
-                                        quotechar='"',
-                                        quoting=csv.QUOTE_ALL,
-                                        escapechar='\\',
-                                        lineterminator='\r\n')
-            csv_writer.writeheader()
-
-            while len(page_of_likes['likes']) > 0:
-                for liked in page_of_likes['likes']:
-
-                    if 'body' in liked:
-                        liked['body'] = cleanse_newlines(liked['body'])
-
-                    if 'caption' in liked:
-                        liked.pop('caption', None)
-
-                    if 'name' in liked:
-                        liked['name'] = cleanse_newlines(liked['name'])
-
-                    if 'reblog' in liked:
-                        liked.pop('reblog', None)
-
-                    if 'summary' in liked:
-                        liked.pop('summary', None)
-
-                    if 'trail' in liked:
-                        liked.pop('trail', None)
-
-                    csv_writer.writerow(liked)
-
-                    if config_dictionary['likes']['capture_binaries']:
-                        photos_record = liked.photos
-                        print(photos_record)
-
-                page_of_likes = next_page_of_likes(tumblr_client, page_of_likes)
-
-    if config_dictionary['likes']['unlike']:
-        page_of_likes = next_page_of_likes(tumblr_client)
-
-        while len(page_of_likes['likes']) > 0:
-            for liked in page_of_likes['likes']:
-                tumblr_unlike(tumblr_client, liked)
-
-            page_of_likes = next_page_of_likes(tumblr_client, page_of_likes)
-
-    if config_dictionary['likes']['relike']:
-        directory_list = get_complete_dir_listing(path_to_archives)
-        directory_list = remove_dirs_from_dir_listing(directory_list)
-        directory_list = focus_list(directory_list, 'likes')
-
-        for directory_item in directory_list:
-            path_to_directory_item = os.path.join(path_to_archives, directory_item)
-            if directory_item[-4:] == '.csv':
-                relike_array = read_csv(os.path.join(path_to_archives, directory_item))
-            else:
-                relike_array = list()
-                with open(path_to_directory_item) as file_in:
-                    for file_line in file_in:
-                        record = ast.literal_eval(file_line)
-                        relike_array.append(record)
-
-            for relike in relike_array:
-                tumblr_like(tumblr_client, relike)
-
-    if config_dictionary['posts']['delete']:
-        page_of_posts = next_page_of_posts(tumblr_client)
-        while len(page_of_posts['posts']) > 0:
-            for post in page_of_posts['posts']:
-                tumblr_client.delete_post(page_of_posts['reduced_blog_url'], post['id'])
-
-    if config_dictionary['likes']['capture']:
-        page_of_likes = next_page_of_likes(tumblr_client)
-
-        directory_list = get_complete_dir_listing(path_to_captures)
-        directory_list = remove_dirs_from_dir_listing(directory_list)
-
-        while len(page_of_likes['likes']) > 0:
-            for like in page_of_likes['likes']:
-                reduced_like = reduce_like(like, path_to_captures)
+            if config_dictionary['likes']['capture']:
+                reduced_like = reduce_like(like, runtime_options['path_to_captures'])
                 smart_capture(reduced_like, directory_list)
 
-            page_of_likes = next_page_of_likes(tumblr_client, page_of_likes)
+            if (config_dictionary['likes']['unlike']):
+                do_tumblr_unlike(runtime_options, like)
 
-    if config_dictionary['posts']['archive']:
-        print('archiving posts is not yet implemented')
+        page_of_likes = next_page_of_likes(runtime_options, page_of_likes)
+
+    if (config_dictionary['likes']['archive']):
+        file_full_of_json.close()
+
+
+def run_post_pages(runtime_options, config_dictionary):
+    # keep
+    page_of_posts = next_page_of_posts(runtime_options)
+
+    if (config_dictionary['posts']['archive']):
+        file_full_of_json = open(runtime_options['posts_archive_path'], 'x', newline='\n', encoding='utf-8')
+
+    while len(page_of_posts['posts']) > 0:
+        for post in page_of_posts['posts']:
+
+            if (config_dictionary['posts']['archive']):
+                # blog['description'] = cleanse_newlines(blog['description'])
+                file_full_of_json.write(json.dumps(post) + '\n')
+
+            if (config_dictionary['posts']['delete']):
+                do_tumblr_unfollow(runtime_options, post)
+
+        page_of_posts = next_page_of_posts(runtime_options, page_of_posts)
+
+    if (config_dictionary['posts']['archive']):
+        file_full_of_json.close()
+
+def run_files_to_refollow(runtime_options):
+    # keep
+    directory_list = focus_list(runtime_options['directory_list'], 'follows')
+
+    for directory_item in directory_list:
+        path_to_directory_item = os.path.join(runtime_options['path_to_archives'], directory_item)
+
+        refollow_array = list()
+        with open(path_to_directory_item) as file_in:
+            for file_line in file_in:
+                record = json.loads(file_line)
+                refollow_array.append(record)
+
+        for refollow in refollow_array:
+            do_tumblr_follow(runtime_options, refollow)
+
+
+def run_files_to_relike(runtime_options):
+    # keep
+    directory_list = focus_list(runtime_options['directory_list'], 'likes')
+
+    for directory_item in directory_list:
+        path_to_directory_item = os.path.join(runtime_options['path_to_archives'], directory_item)
+
+        relike_array = list()
+        with open(path_to_directory_item) as file_in:
+            for file_line in file_in:
+                record = json.loads(file_line)
+                relike_array.append(record)
+
+        for relike in relike_array:
+            do_tumblr_like(runtime_options, relike)
+
+
+def main():
+    runtime_options = {}
+    runtime_options['date_started'] = datetime.now().strftime('%y%m%d_%H%M%S')
+
+    runtime_options['tumblr_client'] = fetch_tumblr_client()
+    test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
+
+    runtime_options['user_params'] = runtime_options['tumblr_client'].info()['user']
+    runtime_options['user_params']['blog_name'] = runtime_options['user_params']['blogs'][0]['name']
+    runtime_options['user_params']['url'] = runtime_options['user_params']['blogs'][0]['url']
+
+    runtime_options['path_to_archives'] = '../resources/archives/'
+    runtime_options['path_to_captures'] = '../resources/captures/'
+
+    runtime_options['directory_list'] = get_dir_list_less_dirs(runtime_options['path_to_archives'])
+    runtime_options['directory_list'] = remove_dirs_from_dir_listing(runtime_options['directory_list'])
+
+    runtime_options['follows_archive_path'] = '{}follows_{}.txt'.format(runtime_options['path_to_archives'],
+                                                                        runtime_options['date_started'])
+    runtime_options['likes_archive_path'] = '{}likes_{}.txt'.format(runtime_options['path_to_archives'],
+                                                                    runtime_options['date_started'])
+    runtime_options['posts_archive_path'] = '{}posts_{}.txt'.format(runtime_options['path_to_archives'],
+                                                                    runtime_options['date_started'])
+
+
+    if (should_run_follows(config_dictionary)):
+        run_follow_pages(runtime_options, config_dictionary)
+
+        if config_dictionary['follows']['refollow']:
+            run_files_to_refollow(runtime_options)
+
+    if (should_run_likes(config_dictionary)):
+        run_like_pages(runtime_options, config_dictionary)
+
+        if config_dictionary['likes']['relike']:
+            run_files_to_relike(runtime_options)
+
+    if (should_run_posts(config_dictionary)):
+        run_post_pages(runtime_options, config_dictionary)
 
     if config_dictionary['supplemental_editor']['do'] == 'unfollow' or config_dictionary['supplemental_editor'][
         'do'] == 'follow':
