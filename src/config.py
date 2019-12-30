@@ -8,22 +8,32 @@ secrets_client = boto3.client('secretsmanager')
 config_dictionary = {
     'tumblr_call_tracker': 0,
     'follows': {
-        'archive': False, # works
-        'unfollow': False, # works
-        'refollow': False, # works
+        'archive': False,
+        'unfollow': False,
+        'refollow': False,
     },
     'likes': {
-        'archive': True, # works
-        'capture': False, # works
-        'unlike': False, # works
-        'relike': True, # works
+        'archive': False,
+        'capture': True,
+        'unlike': True,
+        'relike': False,
     },
     'posts': {
-        'archive': False, # works
+        'archive': False,
+        'capture': False,
         'delete': False
     },
     'run_options': {
-        'continuous_run': True,  # works
+        'continuous_run': True,
+    },
+    'credentials': {
+        'load_from': 'aws', # allows values: 'config' or 'aws'
+        'secrets': {
+            'consumer_key': 'red',
+            'consumer_secret': 'gold',
+            'oauth_token': 'green',
+            'oauth_secret': 'blue'
+        }
     },
     'supplemental_editor': {
         'do': False

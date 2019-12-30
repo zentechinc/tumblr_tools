@@ -1,5 +1,4 @@
 import hashlib
-import html
 import json
 import os
 import time
@@ -10,14 +9,6 @@ import pytumblr
 from bs4 import BeautifulSoup
 
 from src.config import *
-
-
-def cleanse_newlines(str):
-    return (str.replace('\n', '\\n')).replace('\r', '\\r')
-
-
-def unescape_html_body(html_body):
-    return html.unescape(html_body)
 
 
 def build_binary_local_name(reduced_like, middlefix='', binary_url=''):
@@ -34,13 +25,6 @@ def remove_dirs_from_dir_listing(object_list):
     project_path = os.path.abspath(os.path.dirname(__file__))
     new_list = [target_object for target_object in object_list if
                 not os.path.isdir(os.path.join(project_path, target_object))]
-    return new_list
-
-
-def remove_non_dirs_from_dir_listing(object_list):
-    project_path = os.path.abspath(os.path.dirname(__file__))
-    new_list = [target_object for target_object in object_list if
-                os.path.isdir(os.path.join(project_path, target_object))]
     return new_list
 
 
@@ -152,8 +136,6 @@ def smart_capture(reduced_like, known_files):
     # if reduced_like['like_type'] == 'video_vine':
     #     print('enter debug')
 
-    print('----->reduce_like[]:', reduced_like['like_type'])
-
     if reduced_like['like_type'] in ['audio', 'photo', 'text', 'video']:
         i = 1
         for binary_url in reduced_like['payload']:
@@ -198,18 +180,23 @@ def get_blog_keys(tumblr_blog):
             return {'reduced_url': reduce_blog_url(tumblr_blog['url'])}
 
     else:
-        print('bad blog format recieved: {}'.format(tumblr_blog))
+        print('bad blog format received: {}'.format(tumblr_blog))
         print('exiting')
         exit()
 
 
-def fetch_tumblr_client():
-    aws_secrets = json.loads(get_secret())
+def fetch_tumblr_client(config_dictionary):
+    secrets_dictionary = dict()
+    if (config_dictionary['credentials']['load_from'] == 'aws'):
+        secrets_dictionary = json.loads(get_secret())
+    else:
+        secrets_dictionary = config_dictionary['credentials']['secrets']
+
     return pytumblr.TumblrRestClient(
-        aws_secrets['consumer_key'],
-        aws_secrets['consumer_secret'],
-        aws_secrets['oauth_token'],
-        aws_secrets['oauth_secret'])
+        secrets_dictionary['consumer_key'],
+        secrets_dictionary['consumer_secret'],
+        secrets_dictionary['oauth_token'],
+        secrets_dictionary['oauth_secret'])
 
 
 def test_client_api_calls(runtime_options, continuous_run=False, escape_check=False):
@@ -249,8 +236,8 @@ def go_to_sleeeeeeep(wait=60):
         time.sleep(wait)
 
         escape_sleep = test_client_api_calls(
-            {'tumblr_client': fetch_tumblr_client()},
-             config_dictionary['run_options']['continuous_run'], True
+            {'tumblr_client': fetch_tumblr_client(config_dictionary)},
+            config_dictionary['run_options']['continuous_run'], True
         )
 
     return
@@ -285,12 +272,14 @@ def do_tumblr_unfollow(runtime_options, blog_to_unfollow):
 
 
 def next_page_of_follows(runtime_options, working_page={'page_offset': 0}):
-    # keep
     test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
     response_contains_errors = True
     tumblr_response = {}
     while response_contains_errors == True:
-        tumblr_response = runtime_options['tumblr_client'].following()
+        tumblr_response = runtime_options['tumblr_client'].following(
+            limit=10,
+            offset=working_page['page_offset']
+        )
         response_contains_errors = throttle_call(tumblr_response)
 
     working_page['blogs'] = tumblr_response['blogs']
@@ -299,15 +288,14 @@ def next_page_of_follows(runtime_options, working_page={'page_offset': 0}):
 
 
 def next_page_of_likes(runtime_options, working_page={'page_offset': 0}):
-    # keep
     test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
     response_contains_errors = True
     tumblr_response = {}
     while response_contains_errors == True:
         tumblr_response = runtime_options['tumblr_client'].likes(
+            limit=10,
             offset=working_page['page_offset']
         )
-
         response_contains_errors = throttle_call(tumblr_response)
 
     working_page['likes'] = tumblr_response['liked_posts']
@@ -316,14 +304,14 @@ def next_page_of_likes(runtime_options, working_page={'page_offset': 0}):
 
 
 def next_page_of_posts(runtime_options, working_page={'page_offset': 0}):
-    # keep
     test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
     response_contains_errors = True
     tumblr_response = {}
     while response_contains_errors == True:
         tumblr_response = runtime_options['tumblr_client'].posts(
             runtime_options['user_params']['blog_name'],
-            limit=10, offset=working_page['page_offset']
+            limit=10,
+            offset=working_page['page_offset']
         )
         response_contains_errors = throttle_call(tumblr_response)
 
@@ -367,6 +355,7 @@ def should_run_follows(config_dictionary):
 
     return False
 
+
 def should_run_likes(config_dictionary):
     if any([config_dictionary['likes']['archive'],
             config_dictionary['likes']['capture'],
@@ -377,16 +366,18 @@ def should_run_likes(config_dictionary):
 
     return False
 
+
 def should_run_posts(config_dictionary):
     if any([config_dictionary['posts']['archive'],
+            config_dictionary['posts']['capture'],
             config_dictionary['posts']['delete']
             ]):
         return True
 
     return False
 
+
 def run_follow_pages(runtime_options, config_dictionary):
-    # keep
     page_of_follows = next_page_of_follows(runtime_options)
 
     if (config_dictionary['follows']['archive']):
@@ -409,7 +400,6 @@ def run_follow_pages(runtime_options, config_dictionary):
 
 
 def run_like_pages(runtime_options, config_dictionary):
-    # keep
     page_of_likes = next_page_of_likes(runtime_options)
 
     if (config_dictionary['likes']['archive']):
@@ -423,7 +413,6 @@ def run_like_pages(runtime_options, config_dictionary):
         for like in page_of_likes['likes']:
 
             if (config_dictionary['likes']['archive']):
-                # blog['description'] = cleanse_newlines(blog['description'])
                 file_full_of_json.write(json.dumps(like) + '\n')
 
             if config_dictionary['likes']['capture']:
@@ -440,18 +429,24 @@ def run_like_pages(runtime_options, config_dictionary):
 
 
 def run_post_pages(runtime_options, config_dictionary):
-    # keep
     page_of_posts = next_page_of_posts(runtime_options)
 
     if (config_dictionary['posts']['archive']):
         file_full_of_json = open(runtime_options['posts_archive_path'], 'x', newline='\n', encoding='utf-8')
 
+    if (config_dictionary['posts']['capture']):
+        directory_list = get_dir_list_less_dirs(runtime_options['path_to_captures'])
+        directory_list = remove_dirs_from_dir_listing(directory_list)
+
     while len(page_of_posts['posts']) > 0:
         for post in page_of_posts['posts']:
 
             if (config_dictionary['posts']['archive']):
-                # blog['description'] = cleanse_newlines(blog['description'])
                 file_full_of_json.write(json.dumps(post) + '\n')
+
+            if (config_dictionary['posts']['capture']):
+                reduced_post = reduce_like(post, runtime_options['path_to_captures'])
+                smart_capture(reduced_post, directory_list)
 
             if (config_dictionary['posts']['delete']):
                 do_tumblr_unfollow(runtime_options, post)
@@ -461,8 +456,8 @@ def run_post_pages(runtime_options, config_dictionary):
     if (config_dictionary['posts']['archive']):
         file_full_of_json.close()
 
+
 def run_files_to_refollow(runtime_options):
-    # keep
     directory_list = focus_list(runtime_options['directory_list'], 'follows')
 
     for directory_item in directory_list:
@@ -479,7 +474,6 @@ def run_files_to_refollow(runtime_options):
 
 
 def run_files_to_relike(runtime_options):
-    # keep
     directory_list = focus_list(runtime_options['directory_list'], 'likes')
 
     for directory_item in directory_list:
@@ -499,7 +493,7 @@ def main():
     runtime_options = {}
     runtime_options['date_started'] = datetime.now().strftime('%y%m%d_%H%M%S')
 
-    runtime_options['tumblr_client'] = fetch_tumblr_client()
+    runtime_options['tumblr_client'] = fetch_tumblr_client(config_dictionary)
     test_client_api_calls(runtime_options, config_dictionary['run_options']['continuous_run'])
 
     runtime_options['user_params'] = runtime_options['tumblr_client'].info()['user']
@@ -519,6 +513,7 @@ def main():
     runtime_options['posts_archive_path'] = '{}posts_{}.txt'.format(runtime_options['path_to_archives'],
                                                                     runtime_options['date_started'])
 
+    print('----->runtime_options[tumblr_client].info():', runtime_options['tumblr_client'].info())
 
     if (should_run_follows(config_dictionary)):
         run_follow_pages(runtime_options, config_dictionary)
